@@ -1,0 +1,53 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# QGIS specific
+*.qm
+*.ts
+resources.py
+
+# Operating System specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.bak
+*.tmp
+*~
+
+# Environment
+.env
+venv/
+ENV/
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Test coverage
+.coverage
+htmlcov/
+
+# Documentation build
+docs/_build/
+
+# Zip files (plugin packages)
+*.zip 

@@ -1,0 +1,40 @@
+# Bu dosya eklentiniz için meta veriler içerir. O zamandan beri
+# QGIS'in 2.0 sürümü bu, tedarik etmenin doğru yoludur
+# bir eklenti hakkında bilgi. Eski yöntem
+# meta verileri __init__.py dosyasına gömmek
+# 2.0 sürümünden beri artık desteklenmiyor.
+
+# Eklentinizi paketlediğinizde bu dosya dahil edilmelidir.
+
+# Zorunlu öğeler:
+
+[general]
+name=pauEarthquakeAnalysis
+qgisMinimumVersion=3.0
+description=Load layers from spreadsheet files (*.ods, *.xls, *.xlsx)
+about=Deprem verileri http://www.deprem.gov.tr/sarbis/Shared/Default.aspx adresinden alınmıştır. 
+    Olay bazlı sismik veriler https://tdvms.afad.gov.tr/event_spec_data adresinden alınmıştır. 
+    İlçe sınır ve merkez verileri PAU CBS dersinde kullanılan verilerdir. 
+version=2.1.2
+author=Onur Oduncu
+email=mail@onuroduncu.info
+
+# Zorunlu meta verilerin sonu
+
+# İsteğe bağlı öğeler:
+
+# Aşağıdaki satırı kaldırın ve değişiklik günlüğünüzü ekleyin:
+# changelog=
+
+# Etiketler virgülle ayrılır ve boşluk bırakılabilir
+tags=spreadsheet,ods,xls,xlsx,calc,excel
+
+homepage=https://github.com/0nur0duncu/pau_earthquake_analysis
+tracker=https://github.com/0nur0duncu/pau_earthquake_analysis/issues
+repository=https://github.com/0nur0duncu/pau_earthquake_analysis
+icon=resources/icon/Pamukkale_University_logo.svg
+# deneysel bayrak
+experimental=False
+
+# Kullanımdan kaldırılmış bayrak (sadece tek bir sürüm için değil, tüm eklenti için geçerlidir)
+deprecated=False
