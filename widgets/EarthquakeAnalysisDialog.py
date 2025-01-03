@@ -34,9 +34,15 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)
         
-        # Başlangıçta yakınlık mesafesi alanını etkinleştir
-        self.bufferSpinBox.setEnabled(True)
-        self.bufferLabel.setEnabled(True)
+        # Başlangıçta tüm grupları devre dışı bırak (ilçe sınırları hariç)
+        self.earthquakeGroup.setEnabled(False)
+        self.filterGroup.setEnabled(False)
+        self.faultLinesGroup.setEnabled(False)
+        self.settlementGroup.setEnabled(False)
+        
+        # Başlangıçta yakınlık mesafesi alanını devre dışı bırak
+        self.bufferSpinBox.setEnabled(False)
+        self.bufferLabel.setEnabled(False)
         
         # Başlangıçta sütun seçme alanlarını devre dışı bırak
         self.ilColumnComboBox.setEnabled(False)
@@ -55,25 +61,19 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         self.magnitudeRangeLabel.setEnabled(False)
         self.magnitudeSeparatorLabel.setEnabled(False)
         
-        # Stil ayarları
-        style = """
-            QGroupBox {
-                font-weight: bold;
-                padding: 10px;
-            }
-            QLineEdit, QComboBox {
-                padding: 5px;
-                min-height: 25px;
-            }
-            QPushButton {
-                padding: 5px 15px;
-                min-height: 25px;
-            }
-        """
-        self.setStyleSheet(style)
+        # Başlangıçta yerleşim noktaları alanlarını devre dışı bırak
+        self.settlementIlColumnComboBox.setEnabled(False)
+        self.settlementIlceColumnComboBox.setEnabled(False)
+        self.settlementIlLabel.setEnabled(False)
+        self.settlementIlceLabel.setEnabled(False)
+        self.settlementDistanceSpinBox.setEnabled(False)
         
-        # Başlangıçta diğer alanları devre dışı bırak
-        self.disable_fields()
+        # Tamam butonunu başlangıçta devre dışı bırak
+        self.buttonBox.button(QtWidgets.QDialogButtonBox.Ok).setEnabled(False)
+        
+        # Yerleşim noktaları katmanı için değişken
+        self.settlement_layer = None
+        self.settlement_file_path = None
         
         # Sinyalleri bağla
         self.filePathButton.clicked.connect(self.select_shapefile)
@@ -85,6 +85,7 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         self.buttonBox.accepted.connect(self.validate_and_accept)
         self.buttonBox.rejected.connect(self.reject)
         self.bufferSpinBox.valueChanged.connect(self.on_buffer_changed)
+        self.settlementDistanceSpinBox.valueChanged.connect(self.on_settlement_distance_changed)
         
         # Yıl filtresi sinyallerini bağla
         self.yearComboBox.currentTextChanged.connect(self.on_year_changed)
@@ -119,6 +120,9 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         
         # Buffer layer reference
         self.buffer_layer = None
+        
+        # Sinyalleri bağla
+        self.settlementFileButton.clicked.connect(self.select_settlement_file)
         
     def normalize_text(self, text):
         """Metni normalize et (büyük/küçük harf ve türkçe karakter duyarsız)"""
@@ -266,6 +270,22 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         # İl listesini güncelle
         self.update_il_list()
         
+        # İlçe sınırları yüklendiğinde diğer grupları aktif hale getir
+        self.earthquakeGroup.setEnabled(True)
+        self.filterGroup.setEnabled(True)
+        self.faultLinesGroup.setEnabled(True)
+        self.settlementGroup.setEnabled(True)
+        
+        # Sütun seçme alanlarını aktif hale getir
+        self.ilColumnComboBox.setEnabled(True)
+        self.ilceColumnComboBox.setEnabled(True)
+        self.ilColumnLabel.setEnabled(True)
+        self.ilceColumnLabel.setEnabled(True)
+        
+        # Buffer alanını aktif hale getir
+        self.bufferSpinBox.setEnabled(True)
+        self.bufferLabel.setEnabled(True)
+        
     def update_il_list(self):
         """Seçilen il sütununa göre il listesini güncelle"""
         if not self.ensure_valid_layer():
@@ -293,6 +313,16 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
             
         # Önce fay hatlarını temizle
         self.clear_fault_lines()
+        
+        # Yerleşim noktalarını güncelle
+        if self.settlement_layer:
+            # İl değiştiğinde settlement layer'ı yeniden yükle
+            if selected_il:
+                self.update_settlement_filter()
+                # İl değiştiğinde ekstra yenileme
+                if self.iface and self.iface.mapCanvas():
+                    self.iface.mapCanvas().refreshAllLayers()
+                    QtCore.QTimer.singleShot(200, lambda: self.iface.mapCanvas().refresh())
             
         self.ilceComboBox.blockSignals(True)  # Sinyalleri geçici olarak durdur
         self.ilceComboBox.clear()
@@ -354,13 +384,13 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         ilce = self.ilceComboBox.currentText()
         buffer_distance = self.bufferSpinBox.value()
         
-        # Ana katman için turuncu stil oluştur
+        # Ana katman için beyaza yakın, saydam stil oluştur
         main_symbol = QgsFillSymbol.createSimple({
-            'color': '255,165,0,255',  # Turuncu renk
+            'color': '255,255,255,50',  # Beyaz renk, %80 saydamlık
             'style': 'solid',
             'outline_style': 'solid',
-            'outline_width': '0.5',
-            'outline_color': '#000000'  # Siyah kenar
+            'outline_width': '0.8',  # Çizgi kalınlığını artır
+            'outline_color': '64,64,64,255'  # Daha koyu gri ve tam opak kenar çizgisi
         })
         
         # Ana katmanın stilini ayarla
@@ -432,29 +462,34 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         text_format = QgsTextFormat()
         
         # Temel metin formatını ayarla
-        text_format.setSize(10)
-        text_format.setColor(QColor(0, 0, 0))  # Siyah renk
+        text_format.setSize(8)  # Font boyutunu küçült
+        text_format.setColor(QColor(0, 51, 102))  # Koyu lacivert renk
         text_format.setFont(QFont("Arial", weight=QFont.Bold))  # Kalın font
         
-        # Buffer ayarlarını yap
+        # Buffer ayarlarını geliştir
         buffer_settings = QgsTextBufferSettings()
         buffer_settings.setEnabled(True)
-        buffer_settings.setSize(1)
-        buffer_settings.setColor(QColor(255, 255, 255, 230))  # Yarı saydam beyaz
+        buffer_settings.setSize(1.2)  # Buffer boyutunu artır
+        buffer_settings.setColor(QColor(255, 255, 255, 240))  # Daha opak beyaz
         text_format.setBuffer(buffer_settings)
         
         label_settings.setFormat(text_format)
         label_settings.fieldName = "adm2_tr"  # İlçe ismi sütunu
-        label_settings.placement = QgsPalLayerSettings.OverPoint
-        label_settings.priority = 10
+        
+        # Etiket yerleşim ayarlarını güncelle - merkeze sabitle
+        label_settings.placement = QgsPalLayerSettings.OverPoint  # Nokta üzerine yerleşim
+        label_settings.centroidWhole = True  # Tüm poligonu dikkate alarak merkez hesapla
+        label_settings.centroidInside = True  # Merkez noktayı poligon içinde tut
+        label_settings.dist = 0  # Merkez noktadan uzaklık sıfır olsun
         
         # Etiketlerin her zaman görünmesi için ayarlar
-        label_settings.displayAll = True
-        label_settings.obstacle = False
+        label_settings.displayAll = True  # Tüm etiketleri göster
+        label_settings.obstacle = False  # Çakışma kontrolünü kapat
+        label_settings.priority = 10  # Yüksek öncelik
         
         # Eğer il seçili değilse veya sadece il seçiliyse daha büyük font kullan
         if not il or (il and not ilce):
-            text_format.setSize(12)
+            text_format.setSize(10)  # İl için biraz daha büyük font
             label_settings.setFormat(text_format)
             
         layer_settings = QgsVectorLayerSimpleLabeling(label_settings)
@@ -475,6 +510,8 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
             self.csv_file_path = file_path
             self.csvFileEdit.setText(file_path)
             self.load_earthquake_data(file_path)
+            # Deprem verileri yüklendiğinde spinbox durumunu güncelle
+            self.update_settlement_distance_spinbox()
             
     def load_earthquake_data(self, file_path):
         """CSV dosyasından deprem verilerini yükle"""
@@ -523,6 +560,9 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
                 # Büyüklük aralığı değişikliklerini bağla
                 self.minMagnitudeSpinBox.valueChanged.connect(self.on_magnitude_changed)
                 self.maxMagnitudeSpinBox.valueChanged.connect(self.on_magnitude_changed)
+                
+                # Yerleşim noktası mesafesi spinbox durumunu güncelle
+                self.update_settlement_distance_spinbox()
                 
                 # Başarılı mesajı göster
                 QtWidgets.QMessageBox.information(
@@ -621,6 +661,18 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         if self.vector_layer is None:
             return None
             
+        # Yerleşim noktası mesafesi kontrolü
+        settlement_distance = self.settlementDistanceSpinBox.value()
+        if settlement_distance > 0 and (not self.settlement_layer or not self.settlement_layer.isValid()):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Uyarı",
+                "Yerleşim noktalarına göre filtreleme yapabilmek için yerleşim noktası verilerinin yüklü olması gerekiyor.",
+                QtWidgets.QMessageBox.Ok
+            )
+            self.settlementDistanceSpinBox.setValue(0)
+            return None
+            
         il = self.ilComboBox.currentText()
         ilce = self.ilceComboBox.currentText()
         buffer_distance_km = self.bufferSpinBox.value()
@@ -635,7 +687,8 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         max_magnitude = self.maxMagnitudeSpinBox.value()
         
         # Cache kontrolü - Aynı parametrelerle tekrar hesaplama yapılmasını önler
-        cache_params = (il, ilce, buffer_distance_km, filter_exp, start_year, end_year, min_magnitude, max_magnitude)
+        cache_params = (il, ilce, buffer_distance_km, filter_exp, start_year, end_year, 
+                       min_magnitude, max_magnitude, settlement_distance)
         if (hasattr(self, 'cached_result') and 
             hasattr(self, 'cached_params') and 
             self.cached_params == cache_params):
@@ -681,14 +734,71 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
             transform_to_utm = QgsCoordinateTransform(wgs84, utm_crs, QgsProject.instance())
             transform_back_to_wgs84 = QgsCoordinateTransform(utm_crs, wgs84, QgsProject.instance())
 
-            # Geometriyi WGS84'e dönüştür
-            selected_geometry.transform(transform_to_wgs84)
+            try:
+                # Geometriyi WGS84'e dönüştür
+                selected_geometry.transform(transform_to_wgs84)
 
-            # Buffer işlemi
-            if buffer_distance_km > 0:
-                selected_geometry.transform(transform_to_utm)
-                selected_geometry = selected_geometry.buffer(buffer_distance_km * 1000, 5)
-                selected_geometry.transform(transform_back_to_wgs84)
+                # Buffer işlemi
+                if buffer_distance_km > 0:
+                    selected_geometry.transform(transform_to_utm)
+                    selected_geometry = selected_geometry.buffer(buffer_distance_km * 1000, 5)
+                    selected_geometry.transform(transform_back_to_wgs84)
+
+                # Yerleşim noktalarına göre filtreleme
+                if self.settlement_layer and self.settlement_layer.isValid() and settlement_distance > 0:
+                    settlement_features = list(self.settlement_layer.getFeatures())
+                    if settlement_features:
+                        # Yerleşim noktalarını birleştir ve buffer uygula
+                        settlement_geometries = []
+                        for f in settlement_features:
+                            geom = f.geometry()
+                            if geom and not geom.isEmpty() and geom.isGeosValid():
+                                # Geometriyi WGS84'e dönüştür
+                                geom_wgs84 = QgsGeometry(geom)
+                                if self.settlement_layer.crs() != wgs84:
+                                    transform_to_wgs84_settlement = QgsCoordinateTransform(
+                                        self.settlement_layer.crs(), 
+                                        wgs84, 
+                                        QgsProject.instance()
+                                    )
+                                    geom_wgs84.transform(transform_to_wgs84_settlement)
+                                settlement_geometries.append(geom_wgs84)
+                        
+                        if not settlement_geometries:
+                            return None
+                            
+                        settlement_geometry = QgsGeometry.unaryUnion(settlement_geometries)
+                        if not settlement_geometry or settlement_geometry.isEmpty():
+                            return None
+                        
+                        try:
+                            # UTM'e dönüştür ve buffer uygula
+                            settlement_geometry.transform(transform_to_utm)
+                            settlement_geometry = settlement_geometry.buffer(settlement_distance * 1000, 5)
+                            settlement_geometry.transform(transform_back_to_wgs84)
+                            
+                            # Seçili alan ile kesişimi al
+                            selected_geometry = selected_geometry.intersection(settlement_geometry)
+                            
+                            if not selected_geometry or selected_geometry.isEmpty():
+                                return None
+                        except Exception as e:
+                            QtWidgets.QMessageBox.warning(
+                                self,
+                                "Uyarı",
+                                "Yerleşim noktaları filtrelemesi sırasında hata oluştu. Lütfen farklı bir mesafe değeri deneyin.",
+                                QtWidgets.QMessageBox.Ok
+                            )
+                            return None
+
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Uyarı",
+                    "Koordinat dönüşümü sırasında hata oluştu. Lütfen farklı bir alan seçin.",
+                    QtWidgets.QMessageBox.Ok
+                )
+                return None
 
             # Numpy ile vektörize edilmiş işlemler
             bbox = selected_geometry.boundingBox()
@@ -696,6 +806,14 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
                 filtered_data['longitude'].values,
                 filtered_data['latitude'].values
             ))
+            
+            # Geçersiz koordinatları filtrele
+            valid_coords_mask = np.all(np.isfinite(points), axis=1)
+            points = points[valid_coords_mask]
+            if len(points) == 0:
+                return None
+                
+            filtered_data = filtered_data[valid_coords_mask]
             
             # Tek bir numpy maskesi ile hızlı filtreleme
             bbox_mask = np.all([
@@ -916,13 +1034,13 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
         transform_back = QgsCoordinateTransform(utm_crs, self.vector_layer.crs(), QgsProject.instance())
         buffer_geometry.transform(transform_back)
 
-        # Buffer için sembol oluştur - saydam ve kesikli çizgi
+        # Buffer için sembol oluştur - beyaza yakın, saydam stil
         buffer_symbol = QgsFillSymbol.createSimple({
-            'color': '255,165,0,50',  # Turuncu renk, %50 saydamlık
+            'color': '255,255,255,30',  # Beyaz renk, %88 saydamlık
             'style': 'solid',
             'outline_style': 'dash',  # Kesikli çizgi
-            'outline_width': '0.8',
-            'outline_color': '255,140,0,255'  # Koyu turuncu kenar
+            'outline_width': '0.5',  # İnce çizgi
+            'outline_color': '64,64,64,200'  # Koyu gri, yarı saydam kenar çizgisi
         })
 
         # Yeni bir memory layer oluştur ve buffer geometrisini ekle
@@ -989,21 +1107,16 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def on_ilce_changed(self, selected_ilce):
         """İlçe değiştiğinde çağrılır"""
-        # UI'nin yanıt vermesini sağla
-        QtWidgets.QApplication.processEvents()
-        
-        # Layer ismini güncelle
+        # Mevcut işlemleri yap
         self.update_layer_name()
-        
-        # Fay hatlarını güncelle
         self.update_fault_lines()
+        
+        # Yerleşim noktalarını güncelle
+        if self.settlement_layer:
+            self.update_settlement_filter()
         
         # Deprem verilerini güncelle
         if self.earthquake_data is not None:
-            # Önce mevcut deprem katmanlarını temizle
-            for layer in QgsProject.instance().mapLayersByName("Depremler"):
-                QgsProject.instance().removeMapLayer(layer.id())
-            # Yeni deprem verilerini filtrele ve göster
             self.apply_earthquake_filter()
 
     def on_buffer_changed(self, value):
@@ -1191,7 +1304,6 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
 
             # Seçili alanın geometrisini al - optimize edilmiş şekilde
             request = QgsFeatureRequest().setFilterExpression(filter_exp)
-            request.setNoAttributes()  # Sadece geometrileri al
             features = list(self.vector_layer.getFeatures(request))
             if not features:
                 return
@@ -1291,3 +1403,291 @@ class EarthquakeAnalysisDialog(QtWidgets.QDialog, FORM_CLASS):
                 f"Fay hatları güncellenirken hata oluştu: {str(e)}",
                 QtWidgets.QMessageBox.Ok
             )
+
+    def select_settlement_file(self):
+        """Yerleşim noktaları shapefile'ını seç"""
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Yerleşim Noktaları Shapefile Seç",
+            "",
+            "Shapefile (*.shp)"
+        )
+        
+        if file_path and os.path.exists(file_path):
+            self.settlement_file_path = file_path
+            self.settlementFileEdit.setText(file_path)
+            self.load_settlement_layer(file_path)
+            
+    def load_settlement_layer(self, file_path):
+        """Yerleşim noktaları layer'ını yükle"""
+        try:
+            # Önce mevcut katmanı temizle
+            if self.settlement_layer and self.settlement_layer.id() in QgsProject.instance().mapLayers():
+                QgsProject.instance().removeMapLayer(self.settlement_layer.id())
+            
+            # Geçici source layer oluştur
+            source_layer = QgsVectorLayer(file_path, "temp", "ogr")
+            if not source_layer.isValid():
+                raise Exception("Kaynak shapefile yüklenemedi")
+
+            # Memory layer oluştur
+            uri = f"Point?crs={self.target_crs.authid()}"
+            memory_layer = QgsVectorLayer(uri, "yerlesim_noktalari", "memory")
+            if not memory_layer.isValid():
+                raise Exception("Memory layer oluşturulamadı")
+
+            # Alan özelliklerini kopyala
+            provider = memory_layer.dataProvider()
+            attrs = source_layer.fields()
+            provider.addAttributes(attrs)
+            memory_layer.updateFields()
+
+            # Dönüşüm için transform oluştur
+            transform = QgsCoordinateTransform(
+                source_layer.crs(),
+                self.target_crs,
+                QgsProject.instance()
+            )
+
+            # Özellikleri toplu olarak dönüştür ve ekle
+            features = []
+            batch_size = 10000
+            
+            for feature in source_layer.getFeatures():
+                new_feature = QgsFeature(memory_layer.fields())
+                new_feature.setAttributes(feature.attributes())
+                geom = feature.geometry()
+                geom.transform(transform)
+                new_feature.setGeometry(geom)
+                features.append(new_feature)
+                
+                if len(features) >= batch_size:
+                    provider.addFeatures(features)
+                    features = []
+                    # UI'nin yanıt vermesini sağla
+                    QtWidgets.QApplication.processEvents()
+
+            # Kalan özellikleri ekle
+            if features:
+                provider.addFeatures(features)
+
+            memory_layer.updateExtents()
+            
+            # Spatial index oluştur
+            memory_layer.dataProvider().createSpatialIndex()
+            
+            self.settlement_layer = memory_layer
+            
+            # Sütunları ComboBox'lara ekle
+            fields = memory_layer.fields()
+            field_names = [field.name() for field in fields]
+            
+            self.settlementIlColumnComboBox.clear()
+            self.settlementIlceColumnComboBox.clear()
+            self.settlementIlColumnComboBox.addItems(field_names)
+            self.settlementIlceColumnComboBox.addItems(field_names)
+            
+            # Varsayılan sütunları seç
+            il_index = self.settlementIlColumnComboBox.findText("Il_Adi")
+            ilce_index = self.settlementIlceColumnComboBox.findText("Ilce_Adi")
+            if il_index >= 0:
+                self.settlementIlColumnComboBox.setCurrentIndex(il_index)
+            if ilce_index >= 0:
+                self.settlementIlceColumnComboBox.setCurrentIndex(ilce_index)
+            
+            # Alanları aktif hale getir
+            self.settlementIlColumnComboBox.setEnabled(True)
+            self.settlementIlceColumnComboBox.setEnabled(True)
+            self.settlementIlLabel.setEnabled(True)
+            self.settlementIlceLabel.setEnabled(True)
+            
+            # Yerleşim noktası mesafesi spinbox'ını aktif hale getir
+            # Sadece deprem verileri de yüklüyse aktif olacak
+            self.update_settlement_distance_spinbox()
+            
+            # İlk filtrelemeyi uygula
+            self.update_settlement_filter()
+            
+            # Geçici layer'ı temizle
+            del source_layer
+            
+        except Exception as e:
+            self.settlement_layer = None
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Hata",
+                f"Yerleşim noktaları yüklenirken hata oluştu: {str(e)}",
+                QtWidgets.QMessageBox.Ok
+            )
+            self.update_settlement_distance_spinbox()
+            return None
+
+    def update_settlement_filter(self):
+        """Seçili il ve ilçeye göre yerleşim noktalarını filtrele"""
+        if not self.settlement_layer or not self.vector_layer:
+            return
+            
+        il = self.ilComboBox.currentText()
+        ilce = self.ilceComboBox.currentText()
+        
+        # Layer ismini güncelle
+        il_eng = self.normalize_text(il).lower() if il else ""
+        ilce_eng = self.normalize_text(ilce).lower() if ilce else ""
+        if il and ilce:
+            layer_name = f"{il_eng}_{ilce_eng}_yerlesim_noktalari"
+        elif il:
+            layer_name = f"{il_eng}_yerlesim_noktalari"
+        else:
+            layer_name = "yerlesim_noktalari"
+        
+        # Aynı isimli diğer katmanları temizle
+        for layer in QgsProject.instance().mapLayersByName(layer_name):
+            if layer.id() != self.settlement_layer.id():
+                QgsProject.instance().removeMapLayer(layer.id())
+        
+        # Tüm buffer katmanlarını temizle
+        for layer in QgsProject.instance().mapLayers().values():
+            if isinstance(layer, QgsVectorLayer) and layer.name().endswith('_yerlesim_noktalari_buffer'):
+                QgsProject.instance().removeMapLayer(layer.id())
+        
+        self.settlement_layer.setName(layer_name)
+        
+        if not il:
+            self.settlement_layer.setSubsetString("")
+            return
+            
+        # Filtre ifadesini oluştur
+        il_column = self.settlementIlColumnComboBox.currentText()
+        ilce_column = self.settlementIlceColumnComboBox.currentText()
+        
+        # Önce sadece il/ilçe bazlı filtreleme yap
+        if ilce:
+            filter_exp = f"(\"{il_column}\" = '{il}') AND (\"{ilce_column}\" = '{ilce}')"
+        else:
+            filter_exp = f"(\"{il_column}\" = '{il}')"
+        
+        # Filtreyi uygula
+        self.settlement_layer.setSubsetString(filter_exp)
+        
+        # Yerleşim noktası mesafesi
+        settlement_distance = self.settlementDistanceSpinBox.value()
+        
+        # Katmanı haritaya ekle (eğer eklenmemişse)
+        if not QgsProject.instance().mapLayer(self.settlement_layer.id()):
+            # Stil ayarla
+            symbol = QgsMarkerSymbol.createSimple({
+                'name': 'circle',
+                'color': '0,0,255,180',
+                'size': '2',
+                'outline_style': 'solid',
+                'outline_width': '0.4',
+                'outline_color': '0,0,128,255'
+            })
+            self.settlement_layer.renderer().setSymbol(symbol)
+            
+            # Ölçek bağımlı görünürlüğü kaldır
+            self.settlement_layer.setScaleBasedVisibility(False)
+            
+            # Render ayarlarını optimize et
+            self.settlement_layer.renderer().setForceRasterRender(False)
+            
+            # Katmanı ekle
+            QgsProject.instance().addMapLayer(self.settlement_layer, False)
+            
+            # Layer tree'yi al ve yerleşim noktalarını fay hatlarının altına ekle
+            root = QgsProject.instance().layerTreeRoot()
+            root.insertLayer(1, self.settlement_layer)
+        
+        # Eğer yerleşim noktası mesafesi seçilmişse buffer katmanı oluştur
+        if settlement_distance > 0:
+            # Memory layer oluştur
+            buffer_layer_name = layer_name + "_buffer"
+            uri = f"Polygon?crs={self.target_crs.authid()}"
+            buffer_layer = QgsVectorLayer(uri, buffer_layer_name, "memory")
+            
+            if not buffer_layer.isValid():
+                return
+                
+            # Alan özelliklerini kopyala
+            provider = buffer_layer.dataProvider()
+            attrs = self.settlement_layer.fields()
+            provider.addAttributes(attrs)
+            buffer_layer.updateFields()
+            
+            # UTM koordinat sistemine dönüşüm için transform oluştur
+            utm_crs = QgsCoordinateReferenceSystem('EPSG:32636')  # UTM zone 36N
+            transform_to_utm = QgsCoordinateTransform(self.settlement_layer.crs(), utm_crs, QgsProject.instance())
+            transform_back = QgsCoordinateTransform(utm_crs, self.settlement_layer.crs(), QgsProject.instance())
+            
+            # Her yerleşim noktası için buffer oluştur
+            features = []
+            for feature in self.settlement_layer.getFeatures():
+                # Geometriyi UTM'e dönüştür
+                geom = feature.geometry()
+                geom.transform(transform_to_utm)
+                
+                # Buffer uygula (km'yi metreye çevir)
+                buffer_geom = geom.buffer(settlement_distance * 1000, 25)  # 25 segment ile daha yuvarlak
+                
+                # Geri dönüştür
+                buffer_geom.transform(transform_back)
+                
+                # Yeni özellik oluştur
+                new_feature = QgsFeature(buffer_layer.fields())
+                new_feature.setAttributes(feature.attributes())
+                new_feature.setGeometry(buffer_geom)
+                features.append(new_feature)
+                
+                # Her 100 özellikte bir UI'nin yanıt vermesini sağla
+                if len(features) % 100 == 0:
+                    QtWidgets.QApplication.processEvents()
+            
+            # Özellikleri toplu olarak ekle
+            provider.addFeatures(features)
+            buffer_layer.updateExtents()
+            
+            # Buffer stil ayarları
+            symbol = QgsFillSymbol.createSimple({
+                'color': '0,0,255,50',  # Açık mavi, %80 saydamlık
+                'style': 'solid',
+                'outline_style': 'dash',
+                'outline_width': '0.4',
+                'outline_color': '0,0,255,100'  # Mavi kenar, %61 saydamlık
+            })
+            buffer_layer.renderer().setSymbol(symbol)
+            
+            # Katmanı ekle
+            QgsProject.instance().addMapLayer(buffer_layer, False)
+            root = QgsProject.instance().layerTreeRoot()
+            root.insertLayer(2, buffer_layer)  # Yerleşim noktalarının altına ekle
+        
+        # Render ayarlarını optimize et
+        self.settlement_layer.renderer().setForceRasterRender(False)
+        
+        # Katmanı yenile
+        self.settlement_layer.triggerRepaint()
+        
+        # Canvas'ı zorla yenile
+        if self.iface and self.iface.mapCanvas():
+            self.iface.mapCanvas().refreshAllLayers()
+            QtCore.QTimer.singleShot(100, lambda: self.iface.mapCanvas().refresh())
+
+    def on_settlement_distance_changed(self, value):
+        """Yerleşim noktası mesafesi değiştiğinde çağrılır"""
+        # Önce yerleşim noktalarını güncelle (bu buffer'ları da güncelleyecek)
+        self.update_settlement_filter()
+        
+        # Sonra deprem verilerini filtrele
+        if self.earthquake_data is not None:
+            self.apply_earthquake_filter()
+
+    def update_settlement_distance_spinbox(self):
+        """Yerleşim noktası mesafesi spinbox'ının durumunu güncelle"""
+        # Hem deprem hem de yerleşim noktaları verileri yüklüyse aktif et
+        should_enable = (self.earthquake_data is not None and 
+                        self.settlement_layer is not None and 
+                        self.settlement_layer.isValid())
+        
+        self.settlementDistanceSpinBox.setEnabled(should_enable)
+        if not should_enable:
+            self.settlementDistanceSpinBox.setValue(0)

@@ -1,40 +1,61 @@
-# Bu dosya eklentiniz için meta veriler içerir. O zamandan beri
-# QGIS'in 2.0 sürümü bu, tedarik etmenin doğru yoludur
-# bir eklenti hakkında bilgi. Eski yöntem
-# meta verileri __init__.py dosyasına gömmek
-# 2.0 sürümünden beri artık desteklenmiyor.
+# This file contains metadata for your plugin. Since 
+# version 2.0 of QGIS this is the proper way to supply 
+# information about a plugin. The old method of 
+# embedding metadata in __init__.py will 
+# is no longer supported since version 2.0.
 
-# Eklentinizi paketlediğinizde bu dosya dahil edilmelidir.
+# This file should be included when you package your plugin.
 
-# Zorunlu öğeler:
+# Mandatory items:
 
 [general]
 name=pauEarthquakeAnalysis
 qgisMinimumVersion=3.0
-description=Load layers from spreadsheet files (*.ods, *.xls, *.xlsx)
-about=Deprem verileri http://www.deprem.gov.tr/sarbis/Shared/Default.aspx adresinden alınmıştır. 
-    Olay bazlı sismik veriler https://tdvms.afad.gov.tr/event_spec_data adresinden alınmıştır. 
-    İlçe sınır ve merkez verileri PAU CBS dersinde kullanılan verilerdir. 
+description=A comprehensive earthquake analysis tool for QGIS that enables loading and analyzing earthquake data with various spatial and temporal filters.
+about=This plugin provides advanced earthquake analysis capabilities:
+    * Load and visualize earthquake data from AFAD (Disaster and Emergency Management Presidency)
+    * Filter earthquakes by location, magnitude, and date range
+    * Analyze earthquakes within district boundaries
+    * Buffer analysis for fault lines and settlement points
+    * Integration with population data
+    * Interactive visualization and labeling
+    
+    Data Sources:
+    * Earthquake data: http://www.deprem.gov.tr/sarbis/Shared/Default.aspx
+    * Event-based seismic data: https://tdvms.afad.gov.tr/event_spec_data
+    * District boundaries and center data: PAU GIS course materials
 version=2.1.2
 author=Onur Oduncu
 email=mail@onuroduncu.info
 
-# Zorunlu meta verilerin sonu
-
-# İsteğe bağlı öğeler:
+# Optional items:
 
 # Aşağıdaki satırı kaldırın ve değişiklik günlüğünüzü ekleyin:
 # changelog=
 
-# Etiketler virgülle ayrılır ve boşluk bırakılabilir
-tags=spreadsheet,ods,xls,xlsx,calc,excel
+# Tags are comma separated with spaces allowed
+tags=earthquake, analysis, AFAD, seismic data, fault lines, districts, Turkey, population, spatial analysis, buffer analysis, GIS, QGIS3
 
 homepage=https://github.com/0nur0duncu/pau_earthquake_analysis
 tracker=https://github.com/0nur0duncu/pau_earthquake_analysis/issues
 repository=https://github.com/0nur0duncu/pau_earthquake_analysis
 icon=resources/icon/Pamukkale_University_logo.svg
-# deneysel bayrak
+
+# experimental flag
 experimental=False
 
-# Kullanımdan kaldırılmış bayrak (sadece tek bir sürüm için değil, tüm eklenti için geçerlidir)
+# deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False
+
+# Since QGIS 3.0, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+plugin_dependencies=
+
+# If the plugin can run on QGIS Server.
+server=False
+
+# Category of the plugin: Raster, Vector, Database or Web
+category=Vector
+
+# If the plugin can run on Windows, Mac OS or Linux
+os_dependencies=Windows, Linux, MacOS
